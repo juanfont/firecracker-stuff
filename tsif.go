@@ -1,4 +1,4 @@
-package main
+package tsif
 
 import (
 	"errors"
@@ -8,6 +8,16 @@ import (
 
 	"github.com/juanfont/headscale"
 	"tailscale.com/ipn/ipnstate"
+)
+
+const (
+	scenarioHashLength = 6
+	tsifHashLength     = 6
+
+	tsifSocketPath      = "/tmp/firecracker.sock"
+	tsifKernelImagePath = "/tmp/vmlinux.bin"
+	tsifRootDrivePath   = "/tmp/root-drive.ext4"
+	tsifKernelArgs      = "console=ttyS0 reboot=k panic=1 pci=off nomodules rw"
 )
 
 type TailscaleInFirecracker struct {
@@ -38,6 +48,8 @@ func New(
 		kernelArgs:        tsifKernelArgs,
 		originalRootDrive: tsifRootDrivePath,
 	}
+
+	return &tsif, nil
 
 }
 
