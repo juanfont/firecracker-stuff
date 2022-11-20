@@ -1,11 +1,14 @@
 package tsif
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/netip"
 	"strings"
 
+	"github.com/firecracker-microvm/firecracker-go-sdk"
 	"github.com/juanfont/headscale"
 	"tailscale.com/ipn/ipnstate"
 )
@@ -13,11 +16,6 @@ import (
 const (
 	scenarioHashLength = 6
 	tsifHashLength     = 6
-
-	tsifSocketPath      = "/tmp/firecracker.sock"
-	tsifKernelImagePath = "/tmp/vmlinux.bin"
-	tsifRootDrivePath   = "/tmp/root-drive.ext4"
-	tsifKernelArgs      = "console=ttyS0 reboot=k panic=1 pci=off nomodules rw"
 )
 
 type TailscaleInFirecracker struct {
@@ -28,9 +26,12 @@ type TailscaleInFirecracker struct {
 	kernelImagePath   string
 	kernelArgs        string
 	originalRootDrive string
+
+	firecrackerNetworking *FirecrackerNetworking
 }
 
 func New(
+	firecrackerNetworking *FirecrackerNetworking,
 	version string,
 ) (*TailscaleInFirecracker, error) {
 	hash, err := headscale.GenerateRandomStringDNSSafe(tsifHashLength)
@@ -40,17 +41,51 @@ func New(
 
 	hostname := fmt.Sprintf("ts-%s-%s", strings.ReplaceAll(version, ".", "-"), hash)
 
-	tsif := TailscaleInFirecracker{
+	tsif := &TailscaleInFirecracker{
 		version:           version,
 		hostname:          hostname,
-		socketFilePath:    tsifSocketPath,
 		kernelImagePath:   tsifKernelImagePath,
 		kernelArgs:        tsifKernelArgs,
 		originalRootDrive: tsifRootDrivePath,
+
+		firecrackerNetworking: firecrackerNetworking,
 	}
 
-	return &tsif, nil
+	tapDevice, err := firecrackerNetworking.CreateTapDevice()
+	if err != nil {
+		return nil, err
+	}
 
+	tapDeviceAttrs := tapDevice.Attrs()
+
+	networkConfig := NetworkConfig{
+		IP:        firecrackerNetworking.NextIP(),
+		Gateway:   firecrackerNetworking.Network.Addr(),
+		Network:   firecrackerNetworking.Network,
+		TapDevice: tapDeviceAttrs.Name,
+		TapMAC:    tapDeviceAttrs.HardwareAddr.String(),
+	}
+
+	config, err := tsif.getFirecrackerConfig(networkConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := context.Background()
+
+	cmd := firecracker.VMCommandBuilder{}.WithSocketPath(config.SocketPath).Build(ctx)
+	machine, err := firecracker.NewMachine(ctx, *config, firecracker.WithProcessRunner(cmd))
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Starting machine")
+	err = machine.Start(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return tsif, nil
 }
 
 func (t *TailscaleInFirecracker) Hostname() string {
@@ -80,12 +115,15 @@ func (t *TailscaleInFirecracker) IPs() ([]netip.Addr, error) {
 func (t *TailscaleInFirecracker) FQDN() (string, error) {
 	return "", errors.New("not implemented")
 }
+
 func (t *TailscaleInFirecracker) Status() (*ipnstate.Status, error) {
 	return nil, errors.New("not implemented")
 }
+
 func (t *TailscaleInFirecracker) WaitForPeers(expected int) error {
 	return errors.New("not implemented")
 }
+
 func (t *TailscaleInFirecracker) Ping(hostnameOrIP string) error {
 	return errors.New("not implemented")
 }

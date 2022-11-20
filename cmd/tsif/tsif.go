@@ -10,10 +10,17 @@ import (
 func main() {
 	fmt.Println("LOL")
 
-	cidr := netip.MustParsePrefix("172.20.0.1/24")
-	bridgeName, err := tsif.SetupBridgeNetwork(cidr)
+	addr := netip.MustParsePrefix("172.23.0.1/24")
+
+	firecrackerNetworking, err := tsif.NewFirecrackerNetworking(addr)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(bridgeName)
+
+	tsif, err := tsif.New(firecrackerNetworking, "1.30.0")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(tsif)
 }
