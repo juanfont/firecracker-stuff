@@ -10,9 +10,9 @@ import (
 func main() {
 	fmt.Println("LOL")
 
-	addr := netip.MustParsePrefix("172.23.0.1/24")
+	addr := netip.MustParsePrefix("172.26.0.1/24")
 
-	firecrackerNetworking, err := tsif.NewFirecrackerNetworking(addr)
+	firecrackerNetworking, err := tsif.NewFirecrackerManager(addr)
 	if err != nil {
 		panic(err)
 	}

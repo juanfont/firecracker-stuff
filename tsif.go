@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/netip"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/firecracker-microvm/firecracker-go-sdk"
 	"github.com/juanfont/headscale"
@@ -27,11 +29,11 @@ type TailscaleInFirecracker struct {
 	kernelArgs        string
 	originalRootDrive string
 
-	firecrackerNetworking *FirecrackerNetworking
+	firecrackerManager *FirecrackerManager
 }
 
 func New(
-	firecrackerNetworking *FirecrackerNetworking,
+	firecrackerManager *FirecrackerManager,
 	version string,
 ) (*TailscaleInFirecracker, error) {
 	hash, err := headscale.GenerateRandomStringDNSSafe(tsifHashLength)
@@ -48,10 +50,10 @@ func New(
 		kernelArgs:        tsifKernelArgs,
 		originalRootDrive: tsifRootDrivePath,
 
-		firecrackerNetworking: firecrackerNetworking,
+		firecrackerManager: firecrackerManager,
 	}
 
-	tapDevice, err := firecrackerNetworking.CreateTapDevice()
+	tapDevice, err := firecrackerManager.CreateTapDevice()
 	if err != nil {
 		return nil, err
 	}
@@ -59,11 +61,13 @@ func New(
 	tapDeviceAttrs := tapDevice.Attrs()
 
 	networkConfig := NetworkConfig{
-		IP:        firecrackerNetworking.NextIP(),
-		Gateway:   firecrackerNetworking.Network.Addr(),
-		Network:   firecrackerNetworking.Network,
+		IP:        firecrackerManager.NextIP(),
+		Gateway:   firecrackerManager.Network.Addr(),
+		Network:   firecrackerManager.Network,
 		TapDevice: tapDeviceAttrs.Name,
 		TapMAC:    tapDeviceAttrs.HardwareAddr.String(),
+
+		CloudInitURL: firecrackerManager.GetCloudInitURL(),
 	}
 
 	config, err := tsif.getFirecrackerConfig(networkConfig)
@@ -73,7 +77,11 @@ func New(
 
 	ctx := context.Background()
 
-	cmd := firecracker.VMCommandBuilder{}.WithSocketPath(config.SocketPath).Build(ctx)
+	cmd := firecracker.VMCommandBuilder{}.
+		WithStdout(os.Stdout).
+		WithStderr(os.Stderr).
+		WithSocketPath(config.SocketPath).
+		Build(ctx)
 	machine, err := firecracker.NewMachine(ctx, *config, firecracker.WithProcessRunner(cmd))
 	if err != nil {
 		return nil, err
@@ -84,6 +92,8 @@ func New(
 	if err != nil {
 		return nil, err
 	}
+
+	time.Sleep(60 * time.Second)
 
 	return tsif, nil
 }

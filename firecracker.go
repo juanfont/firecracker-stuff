@@ -25,6 +25,8 @@ type NetworkConfig struct {
 
 	TapDevice string
 	TapMAC    string
+
+	CloudInitURL string
 }
 
 func (t *TailscaleInFirecracker) getFirecrackerConfig(networkConfig NetworkConfig) (*firecracker.Config, error) {
@@ -57,11 +59,12 @@ func (t *TailscaleInFirecracker) getFirecrackerConfig(networkConfig NetworkConfi
 		return nil, err
 	}
 
-	kernelArgs := fmt.Sprintf("%s ip=%s::%s:%s::eth0:off",
+	kernelArgs := fmt.Sprintf("%s ip=%s::%s:%s::eth0:off nameserver=1.1.1.1 cloud-config-url=%s",
 		t.kernelArgs,
 		networkConfig.IP.String(),
 		networkConfig.Gateway.String(),
 		net.IP(netmask.Mask).String(),
+		networkConfig.CloudInitURL,
 	)
 
 	fmt.Println(kernelArgs)

@@ -3,6 +3,7 @@ package tsif
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"net/netip"
 	"syscall"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-type FirecrackerNetworking struct {
+type FirecrackerManager struct {
 	Network  netip.Prefix
 	NextAddr netip.Addr
 
@@ -21,7 +22,7 @@ type FirecrackerNetworking struct {
 
 // https://github.com/firecracker-microvm/firecracker/blob/main/docs/network-setup.md#advanced-setting-up-a-bridge-interface
 // https://gist.github.com/s8sg/1acbe50c0d2b9be304cf46fa1e832847
-func NewFirecrackerNetworking(network netip.Prefix) (*FirecrackerNetworking, error) {
+func NewFirecrackerManager(network netip.Prefix) (*FirecrackerManager, error) {
 	bridge, err := setupBridge(network)
 	if err != nil {
 		return nil, err
@@ -32,20 +33,69 @@ func NewFirecrackerNetworking(network netip.Prefix) (*FirecrackerNetworking, err
 		return nil, err
 	}
 
-	return &FirecrackerNetworking{
+	manager := FirecrackerManager{
 		bridge:   bridge,
 		Network:  network,
 		NextAddr: network.Addr().Next(),
-	}, nil
+	}
+
+	go manager.serveCloudInit()
+
+	fmt.Println(manager.GetCloudInitURL())
+
+	return &manager, nil
 }
 
-func (f *FirecrackerNetworking) NextIP() netip.Addr {
+func (f *FirecrackerManager) GetCloudInitURL() string {
+	// primaryLink, err := findDefaultGatewayInterface()
+	// if err != nil {
+	// 	log.Printf("Error finding default gateway interface: %s", err)
+	// 	return "-"
+	// }
+	// attrs := primaryLink.Attrs()
+	// addrs, err := netlink.AddrList(primaryLink, netlink.FAMILY_V4)
+	// if err != nil {
+	// 	log.Printf("Error listing addresses for interface %s: %s", attrs.Name, err)
+	// 	return "-"
+	// }
+	return fmt.Sprintf("https://font.eu/cloud-init")
+}
+
+func (f *FirecrackerManager) serveCloudInit() error {
+	// serve a simple cloud-init file over http
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/cloud-init", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("CULOOOOOO")
+		w.Write([]byte(`
+#cloud-config
+users:
+- name: root
+  lock_passwd: false
+  hashed_passwd: $1$SaltSalt$YhgRYajLPrYevs14poKBQ0
+`))
+	})
+
+	httpServer := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+
+	err := httpServer.ListenAndServe()
+	if err != nil {
+		log.Printf("Error serving cloud-init file: %s", err)
+	}
+
+	return err
+}
+
+func (f *FirecrackerManager) NextIP() netip.Addr {
 	addr := f.NextAddr
 	f.NextAddr = f.NextAddr.Next()
 	return addr
 }
 
-func (f *FirecrackerNetworking) CreateTapDevice() (*netlink.Tuntap, error) {
+func (f *FirecrackerManager) CreateTapDevice() (*netlink.Tuntap, error) {
 	hash, err := headscale.GenerateRandomStringDNSSafe(scenarioHashLength)
 	if err != nil {
 		return nil, err
